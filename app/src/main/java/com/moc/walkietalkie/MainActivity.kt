@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.moc.walkietalkie.ui.WalkieTalkieViewModel
+import com.moc.walkietalkie.ui.WalkieTalkieScreen
 
 class MainActivity : ComponentActivity() {
 
