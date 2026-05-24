@@ -127,12 +127,13 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 // Initialize UDP socket for broadcasting
                 udpSocket = DatagramSocket()
                 udpSocket?.broadcast = true
+                udpSocket?.reuseAddress = true
 
-                // Initialize receive socket - bind to all interfaces
+                // Initialize receive socket - bind to all interfaces with reuse address
                 receiveSocket = DatagramSocket(UDP_PORT)
                 receiveSocket?.broadcast = true
-                receiveSocket?.soTimeout = 100
                 receiveSocket?.reuseAddress = true
+                receiveSocket?.soTimeout = 100
 
                 _isInitialized.value = true
                 _isListening.value = true
@@ -230,10 +231,12 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                     val address = InetAddress.getByName("255.255.255.255")
                     val packet = DatagramPacket(data, size, address, UDP_PORT)
                     udpSocket?.send(packet)
+                    Log.d(TAG, "Sent ${size} bytes to 255.255.255.255")
                 } else {
-                    Log.d(TAG, "Sending to broadcast address: ${broadcastAddress.hostAddress}")
+                    Log.d(TAG, "Sending ${size} bytes to broadcast address: ${broadcastAddress.hostAddress}")
                     val packet = DatagramPacket(data, size, broadcastAddress, UDP_PORT)
                     udpSocket?.send(packet)
+                    Log.d(TAG, "Successfully sent packet")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending audio data", e)
@@ -254,7 +257,7 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                         receiveSocket?.receive(packet)
                         
                         if (packet.length > 0) {
-                            Log.d(TAG, "Received ${packet.length} bytes from ${packet.address.hostAddress}")
+                            Log.d(TAG, "Received ${packet.length} bytes from ${packet.address.hostAddress}, playing now")
                             playReceivedAudio(packet.data, packet.length)
                         }
                     } catch (e: java.net.SocketTimeoutException) {
@@ -270,7 +273,7 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
             }
         }
         
-        Log.d(TAG, "Started listening for incoming audio")
+        Log.d(TAG, "Started listening for incoming audio on port $UDP_PORT")
     }
 
     private fun stopListening() {
@@ -281,7 +284,9 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
     private fun playReceivedAudio(data: ByteArray, size: Int) {
         viewModelScope.launch {
             try {
+                audioTrack?.play()
                 audioTrack?.write(data, 0, size)
+                Log.d(TAG, "Playing ${size} bytes of audio data")
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing audio", e)
             }
