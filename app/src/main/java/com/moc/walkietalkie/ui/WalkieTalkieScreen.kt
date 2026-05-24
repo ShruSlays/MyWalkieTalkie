@@ -139,7 +139,7 @@ fun WalkieTalkieScreen(
                         "Receiving audio from all devices on Wi-Fi"
                     }
                 } else {
-                    "Please grant microphone permission to continue"
+                    "Ensure microphone permission is granted in app settings"
                 },
                 fontSize = 14.sp,
                 color = Color.White.copy(alpha = 0.8f),

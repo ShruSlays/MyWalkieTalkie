@@ -33,6 +33,9 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
     fun setContext(context: Context) {
         _context.value = context.applicationContext
+        // Initialize audio immediately when context is set
+        // User must have manually granted permissions in app settings
+        initializeAudio()
     }
 
     private val _isTransmitting = MutableStateFlow(false)
