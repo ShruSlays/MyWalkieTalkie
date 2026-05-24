@@ -24,7 +24,6 @@ import com.moc.walkietalkie.ui.WalkieTalkieScreen
 class MainActivity : ComponentActivity() {
 
     private val viewModel by lazy { WalkieTalkieViewModel(this) }
-    private var permissionsRequested = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -32,12 +31,10 @@ class MainActivity : ComponentActivity() {
         val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
         if (audioGranted) {
             Log.d("MainActivity", "Permission granted, initializing audio...")
-            viewModel.setContext(this)
             viewModel.initializeAudio()
         } else {
             Log.e("MainActivity", "Permission denied")
         }
-        permissionsRequested = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,6 +43,9 @@ class MainActivity : ComponentActivity() {
         // Set context for the view model immediately
         viewModel.setContext(this)
         
+        // Check and request permissions if needed
+        checkAndRequestPermissions()
+        
         setContent {
             MaterialTheme {
                 Surface(
@@ -53,8 +53,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     WalkieTalkieScreen(
-                        viewModel = viewModel,
-                        onRequestPermissions = { checkAndRequestPermissions() }
+                        viewModel = viewModel
                     )
                 }
             }
@@ -62,11 +61,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        if (permissionsRequested) {
-            Log.d("MainActivity", "Permissions already requested, skipping")
-            return
-        }
-        
         val permissions = arrayOf(
             Manifest.permission.RECORD_AUDIO
         )
@@ -80,7 +74,6 @@ class MainActivity : ComponentActivity() {
             viewModel.initializeAudio()
         } else {
             Log.d("MainActivity", "Requesting missing permissions: $missingPermissions")
-            permissionsRequested = true
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
@@ -91,7 +84,6 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
             == PackageManager.PERMISSION_GRANTED && !viewModel.isInitialized.value) {
             Log.d("MainActivity", "Resuming with permissions, initializing audio...")
-            viewModel.setContext(this)
             viewModel.initializeAudio()
         }
     }

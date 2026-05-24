@@ -18,17 +18,11 @@ import com.moc.walkietalkie.ui.WalkieTalkieViewModel
 
 @Composable
 fun WalkieTalkieScreen(
-    viewModel: WalkieTalkieViewModel,
-    onRequestPermissions: () -> Unit
+    viewModel: WalkieTalkieViewModel
 ) {
     val isTransmitting by viewModel.isTransmitting.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val isInitialized by viewModel.isInitialized.collectAsState()
-
-    // Request permissions when composable is first launched
-    LaunchedEffect(Unit) {
-        onRequestPermissions()
-    }
 
     Box(
         modifier = Modifier
