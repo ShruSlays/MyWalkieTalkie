@@ -168,10 +168,10 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 udpSocket?.broadcast = true
                 udpSocket?.reuseAddress = true
 
-                receiveSocket = DatagramSocket(null)
+                receiveSocket = DatagramSocket()
                 receiveSocket?.reuseAddress = true
-                receiveSocket?.localSocketAddress = InetSocketAddress(UDP_PORT)
                 receiveSocket?.soTimeout = 100
+                receiveSocket?.bind(InetSocketAddress(UDP_PORT))
 
                 val wifiManager = _context.value?.applicationContext?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
                 wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WalkieTalkieLock")
