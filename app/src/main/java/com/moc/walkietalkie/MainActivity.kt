@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,8 +30,11 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
         if (audioGranted) {
+            Log.d("MainActivity", "Permission granted, initializing audio...")
             viewModel.setContext(this)
             viewModel.initializeAudio()
+        } else {
+            Log.e("MainActivity", "Permission denied")
         }
     }
 
@@ -53,6 +57,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        
+        // Check and request permissions immediately
+        checkAndRequestPermissions()
     }
 
     private fun checkAndRequestPermissions() {
@@ -65,9 +72,11 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missingPermissions.isEmpty()) {
+            Log.d("MainActivity", "Permissions already granted, initializing audio...")
             viewModel.setContext(this)
             viewModel.initializeAudio()
         } else {
+            Log.d("MainActivity", "Requesting missing permissions: $missingPermissions")
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
