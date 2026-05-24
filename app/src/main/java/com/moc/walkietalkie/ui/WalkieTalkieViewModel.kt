@@ -31,9 +31,9 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
     private val _context = MutableStateFlow<Context?>(null)
 
-    fun setContext(context: Context) {
-        _context.value = context.applicationContext
-        // Initialize audio immediately when context is set
+    init {
+        _context.value = application.applicationContext
+        // Initialize audio immediately
         // User must have manually granted permissions in app settings
         initializeAudio()
     }
@@ -43,9 +43,6 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
     private val _isListening = MutableStateFlow(true)
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
-
-    private val _isInitialized = MutableStateFlow(false)
-    val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
@@ -118,11 +115,6 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
     }
 
     fun initializeAudio() {
-        if (_isInitialized.value) {
-            Log.d(TAG, "Already initialized, skipping")
-            return
-        }
-
         viewModelScope.launch {
             try {
                 Log.d(TAG, "Starting AudioRecord initialization...")
@@ -137,7 +129,6 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
                     val errorCode = audioRecord?.state ?: -1
                     Log.e(TAG, "AudioRecord failed to initialize, state: $errorCode")
-                    _isInitialized.value = false
                     return@launch
                 }
                 Log.d(TAG, "AudioRecord initialized successfully")
@@ -171,7 +162,6 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 if (audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
                     val errorCode = audioTrack?.state ?: -1
                     Log.e(TAG, "AudioTrack failed to initialize, state: $errorCode")
-                    _isInitialized.value = false
                     return@launch
                 }
                 Log.d(TAG, "AudioTrack initialized successfully")
@@ -221,7 +211,6 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 
                 Log.d(TAG, "WiFi lock held: ${wifiLock?.isHeld}, Multicast lock held: ${multicastLock?.isHeld}")
 
-                _isInitialized.value = true
                 _isListening.value = true
 
                 Log.d(TAG, "=== Audio system fully initialized ===")
@@ -231,13 +220,11 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
             } catch (e: Exception) {
                 Log.e(TAG, "=== FATAL ERROR initializing audio ===", e)
-                _isInitialized.value = false
             }
         }
     }
 
     fun toggleTransmit() {
-        if (!_isInitialized.value) return
         if (_isTransmitting.value) {
             stopTransmitting()
         } else {

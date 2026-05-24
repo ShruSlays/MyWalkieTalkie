@@ -17,9 +17,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Set context for the view model immediately
-        viewModel.setContext(this)
-        
         setContent {
             MaterialTheme {
                 Surface(

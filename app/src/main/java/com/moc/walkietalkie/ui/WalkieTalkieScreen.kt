@@ -22,7 +22,6 @@ fun WalkieTalkieScreen(
 ) {
     val isTransmitting by viewModel.isTransmitting.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
-    val isInitialized by viewModel.isInitialized.collectAsState()
 
     Box(
         modifier = Modifier
@@ -47,14 +46,12 @@ fun WalkieTalkieScreen(
         ) {
             // Status indicator text
             Text(
-                text = if (!isInitialized) {
-                    "Initializing..."
-                } else if (isTransmitting) {
+                text = if (isTransmitting) {
                     "TRANSMITTING"
                 } else if (isListening) {
                     "LISTENING"
                 } else {
-                    "STANDBY"
+                    "STOP SPEAKING"
                 },
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
@@ -66,14 +63,12 @@ fun WalkieTalkieScreen(
             // Large toggle button
             Button(
                 onClick = { viewModel.toggleTransmit() },
-                enabled = isInitialized,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isTransmitting) {
                         Color(0xFFFFEBEE)
                     } else {
                         Color(0xFFE8F5E9)
-                    },
-                    disabledContainerColor = Color.Gray
+                    }
                 ),
                 modifier = Modifier
                     .size(200.dp)
@@ -132,14 +127,10 @@ fun WalkieTalkieScreen(
 
             // Additional status info
             Text(
-                text = if (isInitialized) {
-                    if (isTransmitting) {
-                        "Broadcasting audio to all devices on Wi-Fi"
-                    } else {
-                        "Receiving audio from all devices on Wi-Fi"
-                    }
+                text = if (isTransmitting) {
+                    "Broadcasting audio to all devices on Wi-Fi"
                 } else {
-                    "Ensure microphone permission is granted in app settings"
+                    "Receiving audio from all devices on Wi-Fi"
                 },
                 fontSize = 14.sp,
                 color = Color.White.copy(alpha = 0.8f),
