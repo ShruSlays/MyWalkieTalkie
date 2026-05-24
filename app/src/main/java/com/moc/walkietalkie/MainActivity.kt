@@ -22,19 +22,23 @@ import com.moc.walkietalkie.ui.WalkieTalkieScreen
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel by lazy { WalkieTalkieViewModel() }
+    private val viewModel by lazy { WalkieTalkieViewModel(this) }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
         if (audioGranted) {
+            viewModel.setContext(this)
             viewModel.initializeAudio()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Set context for the view model
+        viewModel.setContext(this)
         
         setContent {
             MaterialTheme {
@@ -61,6 +65,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missingPermissions.isEmpty()) {
+            viewModel.setContext(this)
             viewModel.initializeAudio()
         } else {
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
@@ -72,6 +77,7 @@ class MainActivity : ComponentActivity() {
         // Check permissions on resume
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
             == PackageManager.PERMISSION_GRANTED && !viewModel.isInitialized.value) {
+            viewModel.setContext(this)
             viewModel.initializeAudio()
         }
     }

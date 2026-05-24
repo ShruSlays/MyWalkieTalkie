@@ -1,5 +1,6 @@
 package com.moc.walkietalkie.ui
 
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -15,8 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.nio.ByteBuffer
 
-class WalkieTalkieViewModel : ViewModel() {
+class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
     companion object {
         private const val TAG = "WalkieTalkieVM"
@@ -25,13 +27,18 @@ class WalkieTalkieViewModel : ViewModel() {
         private const val SAMPLE_RATE = 8000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val BUFFER_SIZE_FACTOR = 4
+        private const val BUFFER_SIZE_FACTOR = 2
         
         // Network configuration
         private const val UDP_PORT = 5000
-        private const val BROADCAST_ADDRESS = "255.255.255.255"
     }
 
+    private val _context = MutableStateFlow<Context?>(null)
+    
+    fun setContext(context: Context) {
+        _context.value = context.applicationContext
+    }
+    
     private val _isTransmitting = MutableStateFlow(false)
     val isTransmitting: StateFlow<Boolean> = _isTransmitting.asStateFlow()
 
@@ -51,6 +58,31 @@ class WalkieTalkieViewModel : ViewModel() {
     
     private val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
     private val audioBufferSize = minBufferSize * BUFFER_SIZE_FACTOR
+    
+    // Get the actual Wi-Fi broadcast address
+    private fun getBroadcastAddress(context: Context): InetAddress? {
+        try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val dhcpInfo = wifiManager.dhcpInfo
+            if (dhcpInfo.ipAddress == 0) return null
+            
+            val ipAddress = dhcpInfo.ipAddress
+            val netmask = dhcpInfo.netmask
+            
+            // Calculate broadcast address: IP OR (NOT netmask)
+            val broadcast = (ipAddress and netmask) or (netmask.inv())
+            
+            val bytes = ByteArray(4)
+            for (i in 0..3) {
+                bytes[i] = ((broadcast shr (i * 8)) and 0xFF).toByte()
+            }
+            
+            return InetAddress.getByAddress(bytes)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting broadcast address", e)
+            return null
+        }
+    }
 
     fun initializeAudio() {
         if (_isInitialized.value) return
@@ -66,34 +98,49 @@ class WalkieTalkieViewModel : ViewModel() {
                     audioBufferSize
                 )
 
-                // Initialize AudioTrack for playback
+                // Initialize AudioTrack for playback with proper AudioAttributes
                 val trackBufferSize = AudioTrack.getMinBufferSize(
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_OUT_MONO,
                     AUDIO_FORMAT
                 )
+                
+                val audioAttributes = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                    
+                val audioFormat = AudioFormat.Builder()
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .setEncoding(AUDIO_FORMAT)
+                    .build()
+                    
                 audioTrack = AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AUDIO_FORMAT,
+                    audioAttributes,
+                    audioFormat,
                     trackBufferSize,
-                    AudioTrack.MODE_STREAM
+                    AudioTrack.MODE_STREAM,
+                    0
                 )
 
                 // Initialize UDP socket for broadcasting
                 udpSocket = DatagramSocket()
                 udpSocket?.broadcast = true
+                udpSocket?.soBroadcast = true
 
-                // Initialize receive socket
+                // Initialize receive socket - bind to all interfaces
                 receiveSocket = DatagramSocket(UDP_PORT)
                 receiveSocket?.broadcast = true
-                receiveSocket?.soTimeout = 1000
+                receiveSocket?.soBroadcast = true
+                receiveSocket?.soTimeout = 100
+                receiveSocket?.reuseAddress = true
 
                 _isInitialized.value = true
                 _isListening.value = true
                 
                 Log.d(TAG, "Audio system initialized successfully")
+                Log.d(TAG, "Buffer size: $audioBufferSize, Min buffer: $minBufferSize")
                 
                 // Start listening for incoming audio
                 startListening()
@@ -129,12 +176,13 @@ class WalkieTalkieViewModel : ViewModel() {
                 
                 transmitJob = viewModelScope.launch(Dispatchers.IO) {
                     val buffer = ByteArray(audioBufferSize)
+                    val context = _context.value
                     
                     while (_isTransmitting.value && isActive) {
                         val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: -1
                         
-                        if (bytesRead > 0) {
-                            sendAudioData(buffer, bytesRead)
+                        if (bytesRead > 0 && context != null) {
+                            sendAudioData(context, buffer, bytesRead)
                         }
                         
                         // Small delay to prevent overwhelming the network
@@ -174,12 +222,21 @@ class WalkieTalkieViewModel : ViewModel() {
         }
     }
 
-    private fun sendAudioData(data: ByteArray, size: Int) {
+    private fun sendAudioData(context: Context, data: ByteArray, size: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val address = InetAddress.getByName(BROADCAST_ADDRESS)
-                val packet = DatagramPacket(data, size, address, UDP_PORT)
-                udpSocket?.send(packet)
+                val broadcastAddress = getBroadcastAddress(context)
+                if (broadcastAddress == null) {
+                    Log.w(TAG, "Could not get broadcast address, using 255.255.255.255")
+                    // Fallback to general broadcast
+                    val address = InetAddress.getByName("255.255.255.255")
+                    val packet = DatagramPacket(data, size, address, UDP_PORT)
+                    udpSocket?.send(packet)
+                } else {
+                    Log.d(TAG, "Sending to broadcast address: ${broadcastAddress.hostAddress}")
+                    val packet = DatagramPacket(data, size, broadcastAddress, UDP_PORT)
+                    udpSocket?.send(packet)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending audio data", e)
             }
@@ -199,6 +256,7 @@ class WalkieTalkieViewModel : ViewModel() {
                         receiveSocket?.receive(packet)
                         
                         if (packet.length > 0) {
+                            Log.d(TAG, "Received ${packet.length} bytes from ${packet.address.hostAddress}")
                             playReceivedAudio(packet.data, packet.length)
                         }
                     } catch (e: java.net.SocketTimeoutException) {
