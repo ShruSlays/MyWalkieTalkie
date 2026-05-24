@@ -115,10 +115,14 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
     }
 
     fun initializeAudio() {
-        if (_isInitialized.value) return
+        if (_isInitialized.value) {
+            Log.d(TAG, "Already initialized, skipping")
+            return
+        }
 
         viewModelScope.launch {
             try {
+                Log.d(TAG, "Starting AudioRecord initialization...")
                 audioRecord = AudioRecord(
                     android.media.MediaRecorder.AudioSource.MIC,
                     SAMPLE_RATE,
@@ -128,10 +132,12 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 )
 
                 if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                    Log.e(TAG, "AudioRecord failed to initialize")
+                    val errorCode = audioRecord?.state ?: -1
+                    Log.e(TAG, "AudioRecord failed to initialize, state: $errorCode")
                     _isInitialized.value = false
                     return@launch
                 }
+                Log.d(TAG, "AudioRecord initialized successfully")
 
                 val trackBufferSize = AudioTrack.getMinBufferSize(
                     SAMPLE_RATE,
@@ -139,6 +145,7 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                     AUDIO_FORMAT
                 )
 
+                Log.d(TAG, "Starting AudioTrack initialization, buffer size: $trackBufferSize")
                 val audioAttributes = android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -159,38 +166,68 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 )
 
                 if (audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
-                    Log.e(TAG, "AudioTrack failed to initialize")
+                    val errorCode = audioTrack?.state ?: -1
+                    Log.e(TAG, "AudioTrack failed to initialize, state: $errorCode")
                     _isInitialized.value = false
                     return@launch
                 }
+                Log.d(TAG, "AudioTrack initialized successfully")
 
+                // Create UDP send socket
+                Log.d(TAG, "Creating UDP send socket...")
                 udpSocket = DatagramSocket()
                 udpSocket?.broadcast = true
                 udpSocket?.reuseAddress = true
+                Log.d(TAG, "UDP send socket created, broadcast enabled")
 
-                receiveSocket = DatagramSocket()
+                // Create and bind receive socket explicitly
+                Log.d(TAG, "Creating and binding receive socket on port $UDP_PORT...")
+                receiveSocket = DatagramSocket(null)
                 receiveSocket?.reuseAddress = true
                 receiveSocket?.soTimeout = 100
-                receiveSocket?.bind(InetSocketAddress(UDP_PORT))
+                
+                try {
+                    receiveSocket?.bind(InetSocketAddress(UDP_PORT))
+                    Log.d(TAG, "Receive socket bound successfully to port $UDP_PORT")
+                } catch (e: java.net.BindException) {
+                    Log.e(TAG, "Port $UDP_PORT already in use! Trying to release and retry...", e)
+                    receiveSocket?.close()
+                    receiveSocket = DatagramSocket(null)
+                    receiveSocket?.reuseAddress = true
+                    receiveSocket?.soTimeout = 100
+                    receiveSocket?.bind(InetSocketAddress(UDP_PORT))
+                    Log.d(TAG, "Receive socket rebound successfully")
+                }
 
+                // Acquire WiFi locks
                 val wifiManager = _context.value?.applicationContext?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                Log.d(TAG, "Acquiring WiFi locks...")
+                
                 wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WalkieTalkieLock")
+                wifiLock?.setReferenceCounted(false)
                 wifiLock?.acquire()
                 
                 multicastLock = wifiManager?.createMulticastLock("WalkieTalkieMulticastLock")
-                multicastLock?.setReferenceCounted(true)
-                multicastLock?.acquire()
+                multicastLock?.setReferenceCounted(false)
+                try {
+                    multicastLock?.acquire()
+                    Log.d(TAG, "Multicast lock acquired: ${multicastLock?.isHeld}")
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "Failed to acquire multicast lock - missing CHANGE_WIFI_MULTICAST_STATE permission?", e)
+                }
+                
+                Log.d(TAG, "WiFi lock held: ${wifiLock?.isHeld}, Multicast lock held: ${multicastLock?.isHeld}")
 
                 _isInitialized.value = true
                 _isListening.value = true
 
-                Log.d(TAG, "Audio initialized. Buffer: $audioBufferSize, Track: $trackBufferSize")
-                Log.d(TAG, "WiFi lock: ${wifiLock?.isHeld}, Multicast: ${multicastLock?.isHeld}")
+                Log.d(TAG, "=== Audio system fully initialized ===")
+                Log.d(TAG, "Buffer: $audioBufferSize, Track: $trackBufferSize, Port: $UDP_PORT")
 
                 startListening()
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error initializing audio", e)
+                Log.e(TAG, "=== FATAL ERROR initializing audio ===", e)
                 _isInitialized.value = false
             }
         }
@@ -255,20 +292,41 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
     private fun sendAudioData(context: Context, data: ByteArray, size: Int) {
         try {
             val broadcastAddress = getBroadcastAddress(context)
+            if (broadcastAddress == null) {
+                Log.e(TAG, "Cannot send: broadcast address is null")
+                return
+            }
+            
+            if (udpSocket == null || udpSocket?.isClosed == true) {
+                Log.e(TAG, "Cannot send: UDP socket is null or closed")
+                return
+            }
+            
             val packet = DatagramPacket(data, size, broadcastAddress, UDP_PORT)
             udpSocket?.send(packet)
-            Log.d(TAG, "Sent $size bytes to ${broadcastAddress?.hostAddress}")
+            Log.d(TAG, "Sent $size bytes to ${broadcastAddress.hostAddress}:$UDP_PORT")
         } catch (e: Exception) {
             Log.e(TAG, "Error sending audio data", e)
         }
     }
 
     private fun startListening() {
-        if (receiveJob != null && receiveJob?.isActive == true) return
+        if (receiveJob != null && receiveJob?.isActive == true) {
+            Log.d(TAG, "Receive job already running, skipping")
+            return
+        }
+        
+        if (receiveSocket == null || receiveSocket?.isClosed == true) {
+            Log.e(TAG, "Receive socket is null or closed, cannot start listening")
+            return
+        }
 
         receiveJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val buffer = ByteArray(audioBufferSize)
+                var packetCount = 0
+
+                Log.d(TAG, "=== Starting receive loop on port ${receiveSocket?.localPort} ===")
 
                 while (_isListening.value && !_isTransmitting.value && isActive) {
                     try {
@@ -276,23 +334,33 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                         receiveSocket?.receive(packet)
 
                         if (packet.length > 0) {
-                            Log.d(TAG, "Received ${packet.length} bytes from ${packet.address.hostAddress}")
+                            packetCount++
+                            Log.d(TAG, "[$packetCount] Received ${packet.length} bytes from ${packet.address.hostAddress}:${packet.port}")
                             playReceivedAudio(packet.data, packet.length)
                         }
                     } catch (e: java.net.SocketTimeoutException) {
-                        // Expected
+                        // Expected - just continue loop
+                    } catch (e: java.net.SocketException) {
+                        if (_isListening.value && receiveSocket?.isClosed != true) {
+                            Log.e(TAG, "Socket error in receive loop", e)
+                        }
+                        break
                     } catch (e: Exception) {
                         if (_isListening.value) {
-                            Log.e(TAG, "Error receiving audio", e)
+                            Log.e(TAG, "Unexpected error in receive loop", e)
                         }
+                        break
                     }
                 }
+                
+                Log.d(TAG, "Receive loop ended. Packets received: $packetCount")
+                
             } catch (e: Exception) {
-                Log.e(TAG, "Error in receive loop", e)
+                Log.e(TAG, "Fatal error in receive job", e)
             }
         }
 
-        Log.d(TAG, "Started listening on port $UDP_PORT")
+        Log.d(TAG, "Started listening job")
     }
 
     private fun stopListening() {
