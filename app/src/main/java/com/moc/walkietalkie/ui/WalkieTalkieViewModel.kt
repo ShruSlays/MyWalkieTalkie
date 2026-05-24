@@ -127,12 +127,10 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 // Initialize UDP socket for broadcasting
                 udpSocket = DatagramSocket()
                 udpSocket?.broadcast = true
-                udpSocket?.soBroadcast = true
 
                 // Initialize receive socket - bind to all interfaces
                 receiveSocket = DatagramSocket(UDP_PORT)
                 receiveSocket?.broadcast = true
-                receiveSocket?.soBroadcast = true
                 receiveSocket?.soTimeout = 100
                 receiveSocket?.reuseAddress = true
 
