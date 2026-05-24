@@ -24,6 +24,7 @@ import com.moc.walkietalkie.ui.WalkieTalkieScreen
 class MainActivity : ComponentActivity() {
 
     private val viewModel by lazy { WalkieTalkieViewModel(this) }
+    private var permissionsRequested = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -36,12 +37,13 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.e("MainActivity", "Permission denied")
         }
+        permissionsRequested = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Set context for the view model
+        // Set context for the view model immediately
         viewModel.setContext(this)
         
         setContent {
@@ -57,12 +59,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        
-        // Check and request permissions immediately
-        checkAndRequestPermissions()
     }
 
     private fun checkAndRequestPermissions() {
+        if (permissionsRequested) {
+            Log.d("MainActivity", "Permissions already requested, skipping")
+            return
+        }
+        
         val permissions = arrayOf(
             Manifest.permission.RECORD_AUDIO
         )
@@ -73,19 +77,20 @@ class MainActivity : ComponentActivity() {
 
         if (missingPermissions.isEmpty()) {
             Log.d("MainActivity", "Permissions already granted, initializing audio...")
-            viewModel.setContext(this)
             viewModel.initializeAudio()
         } else {
             Log.d("MainActivity", "Requesting missing permissions: $missingPermissions")
+            permissionsRequested = true
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Check permissions on resume
+        // Check permissions on resume only if not initialized
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
             == PackageManager.PERMISSION_GRANTED && !viewModel.isInitialized.value) {
+            Log.d("MainActivity", "Resuming with permissions, initializing audio...")
             viewModel.setContext(this)
             viewModel.initializeAudio()
         }
