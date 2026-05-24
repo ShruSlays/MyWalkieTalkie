@@ -402,7 +402,6 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                 wifiLock = null
                 multicastLock = null
 
-                _isInitialized.value = false
                 Log.d(TAG, "Cleanup completed")
 
             } catch (e: Exception) {
