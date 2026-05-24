@@ -306,9 +306,21 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
             return
         }
         
+        // Recreate socket if closed or null
         if (receiveSocket == null || receiveSocket?.isClosed == true) {
-            Log.e(TAG, "Receive socket is null or closed, cannot start listening")
-            return
+            Log.d(TAG, "Recreating receive socket...")
+            try {
+                receiveSocket = DatagramSocket(null).apply {
+                    reuseAddress = true
+                    broadcast = true  // Enable broadcast on receive socket too
+                    soTimeout = 1000  // 1 second timeout to allow checking flags
+                }
+                receiveSocket?.bind(InetSocketAddress(UDP_PORT))
+                Log.d(TAG, "Receive socket recreated and bound to port $UDP_PORT")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to recreate receive socket", e)
+                return
+            }
         }
 
         receiveJob = viewModelScope.launch(Dispatchers.IO) {
@@ -325,11 +337,14 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
                         if (packet.length > 0) {
                             packetCount++
-                            Log.d(TAG, "[$packetCount] Received ${packet.length} bytes from ${packet.address.hostAddress}:${packet.port}")
+                            val senderIp = packet.address?.hostAddress ?: "unknown"
+                            Log.d(TAG, "[$packetCount] <<< RECEIVED ${packet.length} bytes from $senderIp:${packet.port}")
                             playReceivedAudio(packet.data, packet.length)
                         }
                     } catch (e: java.net.SocketTimeoutException) {
                         // Expected - just continue loop
+                    } catch (e: java.net.PortUnreachableException) {
+                        Log.w(TAG, "Port unreachable - another app may be using port $UDP_PORT", e)
                     } catch (e: java.net.SocketException) {
                         if (_isListening.value && receiveSocket?.isClosed != true) {
                             Log.e(TAG, "Socket error in receive loop", e)
@@ -339,18 +354,14 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
                         if (_isListening.value) {
                             Log.e(TAG, "Unexpected error in receive loop", e)
                         }
-                        break
                     }
                 }
-                
-                Log.d(TAG, "Receive loop ended. Packets received: $packetCount")
-                
+                Log.d(TAG, "Receive loop ended normally")
             } catch (e: Exception) {
                 Log.e(TAG, "Fatal error in receive job", e)
             }
         }
-
-        Log.d(TAG, "Started listening job")
+        Log.d(TAG, "Started listening for incoming audio")
     }
 
     private fun stopListening() {
