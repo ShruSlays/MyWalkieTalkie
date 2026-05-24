@@ -310,12 +310,12 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
         if (receiveSocket == null || receiveSocket?.isClosed == true) {
             Log.d(TAG, "Recreating receive socket...")
             try {
-                receiveSocket = DatagramSocket(null).apply {
+                receiveSocket = DatagramSocket().apply {
                     reuseAddress = true
                     broadcast = true  // Enable broadcast on receive socket too
                     soTimeout = 1000  // 1 second timeout to allow checking flags
+                    bind(InetSocketAddress(UDP_PORT))
                 }
-                receiveSocket?.bind(InetSocketAddress(UDP_PORT))
                 Log.d(TAG, "Receive socket recreated and bound to port $UDP_PORT")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to recreate receive socket", e)
@@ -330,7 +330,7 @@ class WalkieTalkieViewModel(application: Context) : ViewModel() {
 
                 Log.d(TAG, "=== Starting receive loop on port ${receiveSocket?.localPort} ===")
 
-                while (_isListening.value && !_isTransmitting.value && isActive) {
+                while (_isListening.value && isActive) {
                     try {
                         val packet = DatagramPacket(buffer, buffer.size)
                         receiveSocket?.receive(packet)
